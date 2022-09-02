@@ -576,8 +576,8 @@
           newFooterElem = this.parseTemplate('dropdownFooter', [suggestions]),
           headerRef = this.dropdown.getHeaderRef(),
           footerRef = this.dropdown.getFooterRef();
-      newHeaderElem && headerRef?.parentNode.replaceChild(newHeaderElem, headerRef);
-      newFooterElem && footerRef?.parentNode.replaceChild(newFooterElem, footerRef);
+      newHeaderElem && (headerRef === null || headerRef === void 0 ? void 0 : headerRef.parentNode.replaceChild(newHeaderElem, headerRef));
+      newFooterElem && (footerRef === null || footerRef === void 0 ? void 0 : footerRef.parentNode.replaceChild(newFooterElem, footerRef));
     },
 
     /**
@@ -709,7 +709,9 @@
 
       callbacks: {
         onKeyDown(e) {
-          if (!this.state.hasFocus) return; // get the "active" element, and if there was none (yet) active, use first child
+          if (!this.state.hasFocus) return; // ignore keys during IME composition
+
+          if (this.state.composing) return; // get the "active" element, and if there was none (yet) active, use first child
 
           var selectedElm = this.DOM.dropdown.querySelector(this.settings.classNames.dropdownItemActiveSelector),
               selectedElmData = this.dropdown.getSuggestionDataByNode(selectedElm);
@@ -1318,7 +1320,9 @@
         click: ['scope', _CB.onClickScope.bind(this)],
         dblclick: ['scope', _CB.onDoubleClickScope.bind(this)],
         paste: ['input', _CB.onPaste.bind(this)],
-        drop: ['input', _CB.onDrop.bind(this)]
+        drop: ['input', _CB.onDrop.bind(this)],
+        compositionstart: ['input', _CB.onCompositionStart.bind(this)],
+        compositionend: ['input', _CB.onCompositionEnd.bind(this)]
       };
 
       for (var eventName in _CBR) {
@@ -1373,10 +1377,12 @@
      */
     callbacks: {
       onFocusBlur(e) {
+        var _this$value, _this$value$;
+
         var _s = this.settings,
             text = e.target ? this.trim(e.target.textContent) : '',
             // a string
-        currentDisplayValue = this.value?.[0]?.[_s.tagTextProp],
+        currentDisplayValue = (_this$value = this.value) === null || _this$value === void 0 ? void 0 : (_this$value$ = _this$value[0]) === null || _this$value$ === void 0 ? void 0 : _this$value$[_s.tagTextProp],
             type = e.type,
             ddEnabled = _s.dropdown.enabled >= 0,
             eventData = {
@@ -1450,6 +1456,14 @@
         this.dropdown.hide();
       },
 
+      onCompositionStart(e) {
+        this.state.composing = true;
+      },
+
+      onCompositionEnd(e) {
+        this.state.composing = false;
+      },
+
       onWindowKeyDown(e) {
         var focusedElm = document.activeElement,
             isTag = isNodeTag.call(this, focusedElm),
@@ -1480,7 +1494,9 @@
       },
 
       onKeydown(e) {
-        var _s = this.settings;
+        var _s = this.settings; // ignore keys during IME composition
+
+        if (this.state.composing) return;
 
         if (_s.mode == 'select' && _s.enforceWhitelist && this.value.length && e.key != 'Tab') {
           e.preventDefault();
@@ -1673,7 +1689,7 @@
             }
 
           case 'Enter':
-            if (this.state.dropdown.visible || e.keyCode == 229) return;
+            if (this.state.dropdown.visible) return;
             e.preventDefault(); // solves Chrome bug - http://stackoverflow.com/a/20398191/104380
             // because the main "keydown" event is bound before the dropdown events, this will fire first and will not *yet*
             // know if an option was just selected from the dropdown menu. If an option was selected,
@@ -2054,6 +2070,8 @@
       },
 
       onEditTagkeydown(e, tagElm) {
+        // ignore keys during IME composition
+        if (this.state.composing) return;
         this.trigger("edit:keydown", {
           event: e
         });
@@ -2115,7 +2133,9 @@
               this.placeCaretAfterNode(newlineText);
             } // if this is a tag
             else if (isNodeTag.call(this, addedNode)) {
-              if (addedNode.previousSibling?.nodeType == 3 && !addedNode.previousSibling.textContent) addedNode.previousSibling.remove(); // and it is the first node in a new line
+              var _addedNode$previousSi;
+
+              if (((_addedNode$previousSi = addedNode.previousSibling) === null || _addedNode$previousSi === void 0 ? void 0 : _addedNode$previousSi.nodeType) == 3 && !addedNode.previousSibling.textContent) addedNode.previousSibling.remove(); // and it is the first node in a new line
 
               if (addedNode.previousSibling && addedNode.previousSibling.nodeName == 'BR') {
                 // allows placing the caret just before the tag, when the tag is the first node in that line
@@ -2194,6 +2214,7 @@
     this.state = {
       inputText: '',
       editing: false,
+      composing: false,
       actions: {},
       // UI actions for state-locking
       mixMode: {},
@@ -2648,6 +2669,8 @@
       editableElm.addEventListener('blur', delayed_onEditTagBlur);
       editableElm.addEventListener('input', _CB.onEditTagInput.bind(this, editableElm));
       editableElm.addEventListener('keydown', e => _CB.onEditTagkeydown.call(this, e, tagElm));
+      editableElm.addEventListener('compositionstart', e => _CB.onCompositionStart.call(this, e));
+      editableElm.addEventListener('compositionend', e => _CB.onCompositionEnd.call(this, e));
       if (!opts.skipValidation) isValid = this.editTagToggleValidity(tagElm);
       editableElm.originalIsValid = isValid;
       this.trigger("edit:start", {
@@ -2770,7 +2793,9 @@
      * @param {Object} selection [optional range Object. must have "anchorNode" & "anchorOffset"]
      */
     injectAtCaret(injectedNode, range) {
-      range = range || this.state.selection?.range;
+      var _this$state$selection;
+
+      range = range || ((_this$state$selection = this.state.selection) === null || _this$state$selection === void 0 ? void 0 : _this$state$selection.range);
 
       if (!range && injectedNode) {
         this.appendMixTags(injectedNode);
@@ -3673,7 +3698,9 @@
       this.toggleClass(classNames.empty, !hasValue); // specifically the "select mode" might have the "invalid" classname set when the field is changed, so it must be toggled on add/remove/edit
 
       if (_s.mode == 'select') {
-        this.toggleScopeValidation(this.value?.[0]?.__isValid);
+        var _this$value, _this$value$;
+
+        this.toggleScopeValidation((_this$value = this.value) === null || _this$value === void 0 ? void 0 : (_this$value$ = _this$value[0]) === null || _this$value$ === void 0 ? void 0 : _this$value$.__isValid);
       }
     },
 
